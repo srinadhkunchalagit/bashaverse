@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Volume2, VolumeX, Loader2, Play, Square } from 'lucide-react';
+import { Volume2, VolumeX, Loader2, Square } from 'lucide-react';
 import { LocaleStrings } from '../data/locales';
 import { Language } from '../types';
 
@@ -22,8 +22,10 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
-  // Load browser synthesis voices
+  // Initialize and keep synthesis voices updated
   useEffect(() => {
     const updateVoices = () => {
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -41,22 +43,275 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
     };
   }, []);
 
+  const getAudioContext = (): AudioContext | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return null;
+      if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+        audioContextRef.current = new AudioCtx();
+      }
+      return audioContextRef.current;
+    } catch {
+      return null;
+    }
+  };
+
   const stopAllAudio = () => {
+    // 1. Stop Web Audio buffer source
+    if (activeSourceRef.current) {
+      try {
+        activeSourceRef.current.stop();
+        activeSourceRef.current.disconnect();
+      } catch {
+        // already stopped
+      }
+      activeSourceRef.current = null;
+    }
+
+    // 2. Stop HTML5 Audio
     if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
+      try {
+        currentAudioRef.current.pause();
+        currentAudioRef.current.currentTime = 0;
+      } catch {
+        // ignore
+      }
       currentAudioRef.current = null;
     }
+
+    // 3. Stop browser speech synthesis
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
+
     setActiveVoice(null);
     setIsLoading(null);
+  };
+
+  // Convert base64 string to ArrayBuffer for Web Audio decoding
+  const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+  };
+
+  // Play audio using Web Audio API with pitch & timbre equalization for Girl vs Boy
+  const playWithWebAudio = async (
+    arrayBuffer: ArrayBuffer,
+    gender: 'female' | 'male',
+    isGeminiAiVoice: boolean
+  ): Promise<boolean> => {
+    const ctx = getAudioContext();
+    if (!ctx) return false;
+
+    try {
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+
+      // decodeAudioData consumes the buffer, so slice a copy
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.playbackRate.value = playbackSpeed;
+
+      if (!isGeminiAiVoice) {
+        // Apply gender characteristics to audio:
+        if (gender === 'female') {
+          // 👧 Girl Voice: Higher pitch (+190 cents) & bright presence filter
+          if (source.detune) {
+            source.detune.value = 190;
+          }
+          const filter = ctx.createBiquadFilter();
+          filter.type = 'peaking';
+          filter.frequency.value = 3200;
+          filter.Q.value = 1.2;
+          filter.gain.value = 3.5;
+
+          source.connect(filter);
+          filter.connect(ctx.destination);
+        } else {
+          // 👦 Boy Voice: Lower pitch (-210 cents) & warm chest bass resonance
+          if (source.detune) {
+            source.detune.value = -210;
+          }
+          const filter = ctx.createBiquadFilter();
+          filter.type = 'lowshelf';
+          filter.frequency.value = 240;
+          filter.gain.value = 4.0;
+
+          source.connect(filter);
+          filter.connect(ctx.destination);
+        }
+      } else {
+        // Gemini AI voices are pre-synthesized natively for Kore (girl) or Puck (boy)
+        source.connect(ctx.destination);
+      }
+
+      activeSourceRef.current = source;
+      setActiveVoice(gender);
+
+      source.onended = () => {
+        if (activeVoice === gender) {
+          setActiveVoice(null);
+        }
+        activeSourceRef.current = null;
+      };
+
+      source.start(0);
+      return true;
+    } catch (err) {
+      console.warn('Web Audio decode failed, attempting HTML5 audio fallback:', err);
+      return false;
+    }
+  };
+
+  // Play audio via HTML5 Audio element
+  const playHtml5Audio = (
+    src: string,
+    gender: 'female' | 'male',
+    onFail: () => void
+  ) => {
+    try {
+      const audio = new Audio(src);
+      // Subtle playback rate adjustment if using generic fallback
+      audio.playbackRate =
+        gender === 'female' ? playbackSpeed * 1.07 : playbackSpeed * 0.93;
+      currentAudioRef.current = audio;
+
+      audio.onplay = () => {
+        setActiveVoice(gender);
+        setIsLoading(null);
+      };
+
+      audio.onended = () => {
+        setActiveVoice(null);
+        currentAudioRef.current = null;
+      };
+
+      audio.onerror = () => {
+        console.warn('HTML5 Audio playback error');
+        currentAudioRef.current = null;
+        onFail();
+      };
+
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn('HTML5 audio play rejected:', err);
+          onFail();
+        });
+      }
+    } catch {
+      onFail();
+    }
+  };
+
+  // Fallback 2: Browser Speech Synthesis with gender matching and correct language
+  const playBrowserSynthesis = (gender: 'female' | 'male') => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      setActiveVoice(null);
+      setIsLoading(null);
+      return;
+    }
+
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(textToSpeak);
+      const langCode = targetLang.bcp47 || targetLang.code || 'en-US';
+      utterance.lang = langCode;
+      utterance.rate = playbackSpeed;
+
+      const voices =
+        availableVoices.length > 0
+          ? availableVoices
+          : window.speechSynthesis.getVoices();
+
+      const matchingVoices = voices.filter((v) => {
+        const vl = v.lang.toLowerCase();
+        const tl = langCode.toLowerCase();
+        return (
+          vl === tl ||
+          vl.startsWith(tl.slice(0, 2)) ||
+          vl.replace('_', '-').startsWith(tl.replace('_', '-').slice(0, 2))
+        );
+      });
+
+      if (gender === 'female') {
+        const femaleVoice = matchingVoices.find((v) => {
+          const name = v.name.toLowerCase();
+          return (
+            name.includes('female') ||
+            name.includes('girl') ||
+            name.includes('woman') ||
+            name.includes('zira') ||
+            name.includes('samantha') ||
+            name.includes('karen') ||
+            name.includes('victoria') ||
+            name.includes('fiona') ||
+            name.includes('heera') ||
+            name.includes('kalpana') ||
+            name.includes('veena') ||
+            name.includes('leena') ||
+            name.includes('google')
+          );
+        }) || matchingVoices[0];
+
+        if (femaleVoice) utterance.voice = femaleVoice;
+        utterance.pitch = 1.28; // clearly distinct feminine pitch
+      } else {
+        const maleVoice = matchingVoices.find((v) => {
+          const name = v.name.toLowerCase();
+          return (
+            name.includes('male') ||
+            name.includes('boy') ||
+            name.includes('man') ||
+            name.includes('david') ||
+            name.includes('mark') ||
+            name.includes('george') ||
+            name.includes('daniel') ||
+            name.includes('rishi') ||
+            name.includes('ravi') ||
+            name.includes('alex')
+          );
+        }) || (matchingVoices.length > 1 ? matchingVoices[matchingVoices.length - 1] : matchingVoices[0]);
+
+        if (maleVoice) utterance.voice = maleVoice;
+        utterance.pitch = 0.82; // clearly distinct masculine pitch
+      }
+
+      utterance.onstart = () => {
+        setActiveVoice(gender);
+        setIsLoading(null);
+      };
+
+      utterance.onend = () => {
+        setActiveVoice(null);
+      };
+
+      utterance.onerror = (e) => {
+        console.warn('SpeechSynthesis error:', e);
+        setActiveVoice(null);
+        setIsLoading(null);
+      };
+
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn('Browser synthesis failed:', e);
+      setActiveVoice(null);
+      setIsLoading(null);
+    }
   };
 
   const playVoice = async (gender: 'female' | 'male') => {
     if (!textToSpeak.trim()) return;
 
-    // If currently playing this voice, stop it
+    // Toggle off if already playing
     if (activeVoice === gender) {
       stopAllAudio();
       return;
@@ -65,11 +320,17 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
     stopAllAudio();
     setIsLoading(gender);
 
+    // Warm up AudioContext immediately on user gesture to avoid iOS/Chrome autoplay blocks
+    const ctx = getAudioContext();
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
     try {
-      // 1. Try Gemini high-fidelity server TTS first
+      // Step 1: Call /api/tts (Gemini AI TTS with automatic Google TTS engine fallback on server/Vercel)
       const res = await fetch('/api/tts', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
           text: textToSpeak,
           languageCode: targetLang.code,
@@ -82,109 +343,43 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
       if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
         if (data.audioBase64) {
-          playBase64Audio(data.audioBase64, data.mimeType || 'audio/mp3', gender);
+          const buffer = base64ToArrayBuffer(data.audioBase64);
+          const isGemini = data.source === 'gemini';
+
+          const played = await playWithWebAudio(buffer, gender, isGemini);
+          if (played) {
+            setIsLoading(null);
+            return;
+          }
+
+          // If Web Audio API decode failed, play as HTML5 data audio URI
+          const mime = data.mimeType || (isGemini ? 'audio/wav' : 'audio/mpeg');
+          playHtml5Audio(`data:${mime};base64,${data.audioBase64}`, gender, () => {
+            playBrowserSynthesis(gender);
+          });
           return;
         }
       }
 
-      // 2. Fallback to Web Speech API with gender-tuned voice/pitch
-      playBrowserSynthesis(gender);
-    } catch (err) {
-      console.warn('Server TTS failed, falling back to client synthesis:', err);
-      playBrowserSynthesis(gender);
-    } finally {
-      setIsLoading(null);
-    }
-  };
+      // Step 2: Direct Google TTS URL fallback (works 100% on static Vercel without backend)
+      const directGoogleTtsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(
+        textToSpeak.slice(0, 180)
+      )}&tl=${encodeURIComponent(targetLang.code)}&client=tw-ob`;
 
-  const playBase64Audio = (base64: string, mimeType: string, gender: 'female' | 'male') => {
-    try {
-      const audioUrl = `data:${mimeType};base64,${base64}`;
-      const audio = new Audio(audioUrl);
-      audio.playbackRate = playbackSpeed;
-      currentAudioRef.current = audio;
-
-      audio.onplay = () => {
-        setActiveVoice(gender);
-      };
-
-      audio.onended = () => {
-        setActiveVoice(null);
-        currentAudioRef.current = null;
-      };
-
-      audio.onerror = () => {
-        console.warn('Audio playback error, trying browser synthesis fallback');
-        playBrowserSynthesis(gender);
-      };
-
-      audio.play().catch(() => {
+      playHtml5Audio(directGoogleTtsUrl, gender, () => {
+        // Step 3: Web Speech API synthesis
         playBrowserSynthesis(gender);
       });
     } catch (err) {
-      playBrowserSynthesis(gender);
+      console.warn('Network TTS failed, falling back to direct voice engine:', err);
+      const directGoogleTtsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(
+        textToSpeak.slice(0, 180)
+      )}&tl=${encodeURIComponent(targetLang.code)}&client=tw-ob`;
+
+      playHtml5Audio(directGoogleTtsUrl, gender, () => {
+        playBrowserSynthesis(gender);
+      });
     }
-  };
-
-  const playBrowserSynthesis = (gender: 'female' | 'male') => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(textToSpeak);
-    utterance.rate = playbackSpeed;
-
-    // Attempt to match language
-    const langCode = targetLang.bcp47;
-    const matchingVoices = availableVoices.filter(
-      (v) => v.lang.toLowerCase().startsWith(langCode.toLowerCase().slice(0, 2)) || v.lang === langCode
-    );
-
-    if (gender === 'female') {
-      // Find female voice or adjust pitch higher
-      const femaleVoice = matchingVoices.find(
-        (v) =>
-          v.name.toLowerCase().includes('female') ||
-          v.name.toLowerCase().includes('zira') ||
-          v.name.toLowerCase().includes('samantha') ||
-          v.name.toLowerCase().includes('girl') ||
-          v.name.toLowerCase().includes('google')
-      );
-      if (femaleVoice) {
-        utterance.voice = femaleVoice;
-      } else if (matchingVoices.length > 0) {
-        utterance.voice = matchingVoices[0];
-      }
-      utterance.pitch = 1.25; // feminine higher frequency
-    } else {
-      // Male voice or adjust pitch lower
-      const maleVoice = matchingVoices.find(
-        (v) =>
-          v.name.toLowerCase().includes('male') ||
-          v.name.toLowerCase().includes('david') ||
-          v.name.toLowerCase().includes('george') ||
-          v.name.toLowerCase().includes('boy')
-      );
-      if (maleVoice) {
-        utterance.voice = maleVoice;
-      } else if (matchingVoices.length > 0) {
-        utterance.voice = matchingVoices[matchingVoices.length - 1];
-      }
-      utterance.pitch = 0.82; // masculine lower frequency
-    }
-
-    utterance.onstart = () => {
-      setActiveVoice(gender);
-    };
-
-    utterance.onend = () => {
-      setActiveVoice(null);
-    };
-
-    utterance.onerror = () => {
-      setActiveVoice(null);
-    };
-
-    window.speechSynthesis.speak(utterance);
   };
 
   return (

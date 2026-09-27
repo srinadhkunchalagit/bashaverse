@@ -22,21 +22,18 @@ export default async function handler(req: any, res: any) {
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      // If GEMINI_API_KEY is not set on Vercel, return 503 so client-side fallback triggers seamlessly
-      return res.status(503).json({ error: 'GEMINI_API_KEY not configured on serverless environment' });
-    }
+    if (apiKey) {
+      try {
+        const ai = new GoogleGenAI({
+          apiKey,
+          httpOptions: {
+            headers: {
+              'User-Agent': 'aistudio-build',
+            },
+          },
+        });
 
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-      },
-    });
-
-    const prompt = `You are a world-class professional translator and linguistic expert.
+        const prompt = `You are a world-class professional translator and linguistic expert.
 Translate the following text accurately, preserving nuance, cultural context, and natural flow.
 Source Language: ${sourceLangCode === 'auto' ? 'Auto-Detect the language' : `${sourceLangName} (${sourceLangCode})`}
 Target Language: ${targetLangName} (${targetLangCode})
@@ -49,38 +46,86 @@ Provide a JSON response with:
 2. "transliteration": Romanized phonetic pronunciation guide (how to pronounce it using English/Latin alphabet, especially helpful for Indian scripts like Telugu, Hindi, Tamil, Bengali or Asian/Cyrillic/Arabic scripts).
 3. "detectedSourceLang": If source was auto-detect, specify the identified source language name, otherwise empty.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            translation: {
-              type: Type.STRING,
-              description: 'The translated text in the target language',
-            },
-            transliteration: {
-              type: Type.STRING,
-              description: 'Romanized phonetic pronunciation guide',
-            },
-            detectedSourceLang: {
-              type: Type.STRING,
-              description: 'Detected language name if auto-detected',
+        const response = await ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                translation: {
+                  type: Type.STRING,
+                  description: 'The translated text in the target language',
+                },
+                transliteration: {
+                  type: Type.STRING,
+                  description: 'Romanized phonetic pronunciation guide',
+                },
+                detectedSourceLang: {
+                  type: Type.STRING,
+                  description: 'Detected language name if auto-detected',
+                },
+              },
+              required: ['translation'],
             },
           },
-          required: ['translation'],
-        },
-      },
-    });
+        });
 
-    const parsed = JSON.parse(response.text || '{}');
-    return res.status(200).json({
-      translation: parsed.translation || '',
-      transliteration: parsed.transliteration || '',
-      detectedSourceLang: parsed.detectedSourceLang || '',
-    });
+        const parsed = JSON.parse(response.text || '{}');
+        if (parsed.translation) {
+          return res.status(200).json({
+            translation: parsed.translation || '',
+            transliteration: parsed.transliteration || '',
+            detectedSourceLang: parsed.detectedSourceLang || '',
+          });
+        }
+      } catch (geminiError: any) {
+        console.warn('Gemini translation failed, using Google Translate fallback:', geminiError?.message);
+      }
+    }
+
+    // Server-side fallback: Google Translate Web API
+    try {
+      const sl = sourceLangCode === 'auto' ? 'auto' : sourceLangCode;
+      const tl = targetLangCode;
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(
+        sl
+      )}&tl=${encodeURIComponent(tl)}&dt=t&dt=rm&q=${encodeURIComponent(text.trim())}`;
+
+      const gRes = await fetch(url);
+      if (gRes.ok) {
+        const gData = await gRes.json();
+        let fullTranslation = '';
+        let transliteration = '';
+
+        if (Array.isArray(gData) && Array.isArray(gData[0])) {
+          for (const item of gData[0]) {
+            if (item && item[0]) fullTranslation += item[0];
+            if (item && item[2] && typeof item[2] === 'string' && !transliteration) {
+              transliteration = item[2];
+            } else if (item && item[3] && typeof item[3] === 'string' && !transliteration) {
+              transliteration = item[3];
+            }
+          }
+        }
+
+        let detectedSourceLang = '';
+        if (sourceLangCode === 'auto' && gData[2] && typeof gData[2] === 'string') {
+          detectedSourceLang = gData[2];
+        }
+
+        if (fullTranslation.trim()) {
+          return res.status(200).json({
+            translation: fullTranslation,
+            transliteration,
+            detectedSourceLang,
+          });
+        }
+      }
+    } catch (fallbackError) {
+      console.warn('Google Translate API fallback error:', fallbackError);
+    }
   } catch (error: any) {
     console.error('Vercel serverless translation error:', error);
     return res.status(500).json({
