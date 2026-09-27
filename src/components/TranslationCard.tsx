@@ -16,6 +16,7 @@ import { LocaleStrings } from '../data/locales';
 import { LanguageSelector } from './LanguageSelectorModal';
 import { VoiceInputButton } from './VoiceInputButton';
 import { VoiceOutputControls } from './VoiceOutputControls';
+import { translateText } from '../utils/translator';
 
 interface TranslationCardProps {
   sourceLang: Language;
@@ -53,23 +54,13 @@ export const TranslationCard: React.FC<TranslationCardProps> = ({
     setErrorMessage(null);
 
     try {
-      const response = await fetch('/api/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: inputText,
-          sourceLangCode: sourceLang.code,
-          sourceLangName: sourceLang.name,
-          targetLangCode: targetLang.code,
-          targetLangName: targetLang.name,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || data.error) {
-        throw new Error(data.error || 'Failed to translate');
-      }
+      const data = await translateText(
+        inputText,
+        sourceLang.code,
+        sourceLang.name,
+        targetLang.code,
+        targetLang.name
+      );
 
       setTranslatedText(data.translation || '');
       setTransliteration(data.transliteration || '');
@@ -88,7 +79,11 @@ export const TranslationCard: React.FC<TranslationCardProps> = ({
       onSaveToHistory(result);
     } catch (err: any) {
       console.error('Translation error:', err);
-      setErrorMessage(err.message || 'Error occurred while translating. Please try again.');
+      setErrorMessage(
+        err.message?.includes('JSON')
+          ? 'Network error reaching translation service. Retrying...'
+          : err.message || 'Error occurred while translating. Please try again.'
+      );
     } finally {
       setIsLoading(false);
     }

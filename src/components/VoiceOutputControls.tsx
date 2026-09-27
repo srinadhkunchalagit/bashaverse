@@ -78,7 +78,8 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
         }),
       });
 
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
         if (data.audioBase64) {
           playBase64Audio(data.audioBase64, data.mimeType || 'audio/mp3', gender);

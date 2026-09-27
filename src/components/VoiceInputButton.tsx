@@ -158,11 +158,16 @@ export const VoiceInputButton: React.FC<VoiceInputButtonProps> = ({
             langCode: sourceLangBcp47,
           }),
         });
-        const data = await res.json();
-        if (data.text) {
-          onTranscription(data.text);
-        } else if (data.error) {
-          setErrorMsg(data.error);
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (data.text) {
+            onTranscription(data.text);
+          } else if (data.error) {
+            setErrorMsg(data.error);
+          }
+        } else {
+          console.warn('Voice transcription endpoint returned non-JSON');
         }
       };
     } catch (err) {
