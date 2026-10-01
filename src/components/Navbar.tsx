@@ -58,8 +58,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 AI Voice
               </span>
             </div>
-            <p className="text-xs text-slate-300 font-medium hidden md:block truncate max-w-md">
-              {strings.appSubtitle}
+            <p className="text-[11px] text-amber-300 font-bold hidden md:block">
+              Designed & Directed by Srinadh Kunchala
             </p>
           </div>
         </div>

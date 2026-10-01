@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Volume2, VolumeX, Loader2, Square } from 'lucide-react';
+import { Volume2, VolumeX, Loader2, Square, Play, Pause } from 'lucide-react';
 import { LocaleStrings } from '../data/locales';
 import { Language } from '../types';
 
@@ -16,16 +16,15 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
   strings,
   disabled = false,
 }) => {
-  const [activeVoice, setActiveVoice] = useState<'female' | 'male' | null>(null);
-  const [isLoading, setIsLoading] = useState<'female' | 'male' | null>(null);
+  const [playbackState, setPlaybackState] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle');
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const isSpeechSynthesisRef = useRef<boolean>(false);
 
-  // Initialize and keep synthesis voices updated
   useEffect(() => {
     const updateVoices = () => {
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -42,6 +41,11 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
       stopAllAudio();
     };
   }, []);
+
+  // When textToSpeak changes, stop any previous audio
+  useEffect(() => {
+    stopAllAudio();
+  }, [textToSpeak]);
 
   const getAudioContext = (): AudioContext | null => {
     if (typeof window === 'undefined') return null;
@@ -82,14 +86,99 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
 
     // 3. Stop browser speech synthesis
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // ignore
+      }
     }
 
-    setActiveVoice(null);
-    setIsLoading(null);
+    isSpeechSynthesisRef.current = false;
+    setPlaybackState('idle');
   };
 
-  // Convert base64 string to ArrayBuffer for Web Audio decoding
+  const pauseAudio = () => {
+    if (playbackState !== 'playing') return;
+
+    // If using HTML5 audio
+    if (currentAudioRef.current) {
+      try {
+        currentAudioRef.current.pause();
+        setPlaybackState('paused');
+        return;
+      } catch {
+        // ignore
+      }
+    }
+
+    // If using Web Audio
+    if (audioContextRef.current && audioContextRef.current.state === 'running') {
+      try {
+        audioContextRef.current.suspend().then(() => {
+          setPlaybackState('paused');
+        });
+        return;
+      } catch {
+        // ignore
+      }
+    }
+
+    // If using SpeechSynthesis
+    if (isSpeechSynthesisRef.current && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.pause();
+        setPlaybackState('paused');
+        return;
+      } catch {
+        // ignore
+      }
+    }
+
+    setPlaybackState('paused');
+  };
+
+  const resumeAudio = () => {
+    if (playbackState !== 'paused') return;
+
+    // If HTML5 audio
+    if (currentAudioRef.current) {
+      try {
+        currentAudioRef.current.play().then(() => {
+          setPlaybackState('playing');
+        });
+        return;
+      } catch {
+        // restart
+      }
+    }
+
+    // If Web Audio
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      try {
+        audioContextRef.current.resume().then(() => {
+          setPlaybackState('playing');
+        });
+        return;
+      } catch {
+        // restart
+      }
+    }
+
+    // If SpeechSynthesis
+    if (isSpeechSynthesisRef.current && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.resume();
+        setPlaybackState('playing');
+        return;
+      } catch {
+        // restart
+      }
+    }
+
+    // If unable to resume directly, restart playback
+    playVoice();
+  };
+
   const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
     const binaryString = window.atob(base64);
     const len = binaryString.length;
@@ -100,10 +189,8 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
     return bytes.buffer;
   };
 
-  // Play audio using Web Audio API with pitch & timbre equalization for Girl vs Boy
   const playWithWebAudio = async (
     arrayBuffer: ArrayBuffer,
-    gender: 'female' | 'male',
     isGeminiAiVoice: boolean
   ): Promise<boolean> => {
     const ctx = getAudioContext();
@@ -114,109 +201,76 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
         await ctx.resume();
       }
 
-      // decodeAudioData consumes the buffer, so slice a copy
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
       source.playbackRate.value = playbackSpeed;
 
       if (!isGeminiAiVoice) {
-        // Apply gender characteristics to audio:
-        if (gender === 'female') {
-          // 👧 Girl Voice: Higher pitch (+190 cents) & bright presence filter
-          if (source.detune) {
-            source.detune.value = 190;
-          }
-          const filter = ctx.createBiquadFilter();
-          filter.type = 'peaking';
-          filter.frequency.value = 3200;
-          filter.Q.value = 1.2;
-          filter.gain.value = 3.5;
-
-          source.connect(filter);
-          filter.connect(ctx.destination);
-        } else {
-          // 👦 Boy Voice: Lower pitch (-210 cents) & warm chest bass resonance
-          if (source.detune) {
-            source.detune.value = -210;
-          }
-          const filter = ctx.createBiquadFilter();
-          filter.type = 'lowshelf';
-          filter.frequency.value = 240;
-          filter.gain.value = 4.0;
-
-          source.connect(filter);
-          filter.connect(ctx.destination);
+        // Bright, clear female voice equalization
+        if (source.detune) {
+          source.detune.value = 190;
         }
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'peaking';
+        filter.frequency.value = 3200;
+        filter.Q.value = 1.2;
+        filter.gain.value = 3.5;
+        source.connect(filter);
+        filter.connect(ctx.destination);
       } else {
-        // Gemini AI voices are pre-synthesized natively for Kore (girl) or Puck (boy)
         source.connect(ctx.destination);
       }
 
       activeSourceRef.current = source;
-      setActiveVoice(gender);
+      setPlaybackState('playing');
 
+      // CRITICAL: Stop automatically as soon as audio completes naturally
       source.onended = () => {
-        if (activeVoice === gender) {
-          setActiveVoice(null);
-        }
         activeSourceRef.current = null;
+        setPlaybackState('idle');
       };
 
       source.start(0);
       return true;
     } catch (err) {
-      console.warn('Web Audio decode failed, attempting HTML5 audio fallback:', err);
+      console.warn('Web Audio decode failed:', err);
       return false;
     }
   };
 
-  // Play audio via HTML5 Audio element
-  const playHtml5Audio = (
-    src: string,
-    gender: 'female' | 'male',
-    onFail: () => void
-  ) => {
+  const playHtml5Audio = (src: string, onFail: () => void) => {
     try {
       const audio = new Audio(src);
-      // Subtle playback rate adjustment if using generic fallback
-      audio.playbackRate =
-        gender === 'female' ? playbackSpeed * 1.07 : playbackSpeed * 0.93;
+      audio.playbackRate = playbackSpeed * 1.05;
       currentAudioRef.current = audio;
 
       audio.onplay = () => {
-        setActiveVoice(gender);
-        setIsLoading(null);
+        setPlaybackState('playing');
       };
 
+      // CRITICAL: Stop automatically as soon as audio completes naturally
       audio.onended = () => {
-        setActiveVoice(null);
         currentAudioRef.current = null;
+        setPlaybackState('idle');
       };
 
       audio.onerror = () => {
-        console.warn('HTML5 Audio playback error');
         currentAudioRef.current = null;
         onFail();
       };
 
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise.catch((err) => {
-          console.warn('HTML5 audio play rejected:', err);
-          onFail();
-        });
-      }
+      audio.play().catch(() => {
+        onFail();
+      });
     } catch {
       onFail();
     }
   };
 
-  // Fallback 2: Browser Speech Synthesis with gender matching and correct language
-  const playBrowserSynthesis = (gender: 'female' | 'male') => {
+  const playBrowserSynthesis = () => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      setActiveVoice(null);
-      setIsLoading(null);
+      setPlaybackState('idle');
       return;
     }
 
@@ -226,6 +280,7 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
       const langCode = targetLang.bcp47 || targetLang.code || 'en-US';
       utterance.lang = langCode;
       utterance.rate = playbackSpeed;
+      utterance.pitch = 1.25;
 
       const voices =
         availableVoices.length > 0
@@ -242,8 +297,8 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
         );
       });
 
-      if (gender === 'female') {
-        const femaleVoice = matchingVoices.find((v) => {
+      const femaleVoice =
+        matchingVoices.find((v) => {
           const name = v.name.toLowerCase();
           return (
             name.includes('female') ||
@@ -253,7 +308,6 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
             name.includes('samantha') ||
             name.includes('karen') ||
             name.includes('victoria') ||
-            name.includes('fiona') ||
             name.includes('heera') ||
             name.includes('kalpana') ||
             name.includes('veena') ||
@@ -262,72 +316,44 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
           );
         }) || matchingVoices[0];
 
-        if (femaleVoice) utterance.voice = femaleVoice;
-        utterance.pitch = 1.28; // clearly distinct feminine pitch
-      } else {
-        const maleVoice = matchingVoices.find((v) => {
-          const name = v.name.toLowerCase();
-          return (
-            name.includes('male') ||
-            name.includes('boy') ||
-            name.includes('man') ||
-            name.includes('david') ||
-            name.includes('mark') ||
-            name.includes('george') ||
-            name.includes('daniel') ||
-            name.includes('rishi') ||
-            name.includes('ravi') ||
-            name.includes('alex')
-          );
-        }) || (matchingVoices.length > 1 ? matchingVoices[matchingVoices.length - 1] : matchingVoices[0]);
-
-        if (maleVoice) utterance.voice = maleVoice;
-        utterance.pitch = 0.82; // clearly distinct masculine pitch
-      }
+      if (femaleVoice) utterance.voice = femaleVoice;
 
       utterance.onstart = () => {
-        setActiveVoice(gender);
-        setIsLoading(null);
+        isSpeechSynthesisRef.current = true;
+        setPlaybackState('playing');
       };
 
+      // CRITICAL: Stop automatically as soon as speech completes
       utterance.onend = () => {
-        setActiveVoice(null);
+        isSpeechSynthesisRef.current = false;
+        setPlaybackState('idle');
       };
 
-      utterance.onerror = (e) => {
-        console.warn('SpeechSynthesis error:', e);
-        setActiveVoice(null);
-        setIsLoading(null);
+      utterance.onerror = () => {
+        isSpeechSynthesisRef.current = false;
+        setPlaybackState('idle');
       };
 
       window.speechSynthesis.speak(utterance);
     } catch (e) {
       console.warn('Browser synthesis failed:', e);
-      setActiveVoice(null);
-      setIsLoading(null);
+      setPlaybackState('idle');
     }
   };
 
-  const playVoice = async (gender: 'female' | 'male') => {
+  const playVoice = async () => {
     if (!textToSpeak.trim()) return;
 
-    // Toggle off if already playing
-    if (activeVoice === gender) {
-      stopAllAudio();
-      return;
-    }
-
     stopAllAudio();
-    setIsLoading(gender);
+    setPlaybackState('loading');
 
-    // Warm up AudioContext immediately on user gesture to avoid iOS/Chrome autoplay blocks
     const ctx = getAudioContext();
     if (ctx && ctx.state === 'suspended') {
       ctx.resume().catch(() => {});
     }
 
     try {
-      // Step 1: Call /api/tts (Gemini AI TTS with automatic Google TTS engine fallback on server/Vercel)
+      // Step 1: Call /api/tts (Gemini AI TTS with Kore clear female persona)
       const res = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -335,7 +361,7 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
           text: textToSpeak,
           languageCode: targetLang.code,
           languageName: targetLang.name,
-          gender,
+          gender: 'female',
         }),
       });
 
@@ -346,29 +372,24 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
           const buffer = base64ToArrayBuffer(data.audioBase64);
           const isGemini = data.source === 'gemini';
 
-          const played = await playWithWebAudio(buffer, gender, isGemini);
-          if (played) {
-            setIsLoading(null);
-            return;
-          }
+          const played = await playWithWebAudio(buffer, isGemini);
+          if (played) return;
 
-          // If Web Audio API decode failed, play as HTML5 data audio URI
           const mime = data.mimeType || (isGemini ? 'audio/wav' : 'audio/mpeg');
-          playHtml5Audio(`data:${mime};base64,${data.audioBase64}`, gender, () => {
-            playBrowserSynthesis(gender);
+          playHtml5Audio(`data:${mime};base64,${data.audioBase64}`, () => {
+            playBrowserSynthesis();
           });
           return;
         }
       }
 
-      // Step 2: Direct Google TTS URL fallback (works 100% on static Vercel without backend)
+      // Step 2: Direct Google TTS URL fallback
       const directGoogleTtsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(
         textToSpeak.slice(0, 180)
       )}&tl=${encodeURIComponent(targetLang.code)}&client=tw-ob`;
 
-      playHtml5Audio(directGoogleTtsUrl, gender, () => {
-        // Step 3: Web Speech API synthesis
-        playBrowserSynthesis(gender);
+      playHtml5Audio(directGoogleTtsUrl, () => {
+        playBrowserSynthesis();
       });
     } catch (err) {
       console.warn('Network TTS failed, falling back to direct voice engine:', err);
@@ -376,41 +397,65 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
         textToSpeak.slice(0, 180)
       )}&tl=${encodeURIComponent(targetLang.code)}&client=tw-ob`;
 
-      playHtml5Audio(directGoogleTtsUrl, gender, () => {
-        playBrowserSynthesis(gender);
+      playHtml5Audio(directGoogleTtsUrl, () => {
+        playBrowserSynthesis();
       });
     }
   };
 
+  const handleMainButtonClick = () => {
+    if (playbackState === 'playing') {
+      pauseAudio();
+    } else if (playbackState === 'paused') {
+      resumeAudio();
+    } else {
+      playVoice();
+    }
+  };
+
   return (
-    <div className="flex flex-wrap items-center gap-2.5">
-      {/* 👧 Girl Voice Button - Vibrant Rose / Pink */}
+    <div className="flex flex-wrap items-center gap-2">
+      {/* 🎙️ Voice Assistant Button */}
       <button
         type="button"
-        onClick={() => playVoice('female')}
-        disabled={disabled || !textToSpeak.trim() || isLoading !== null}
-        className={`group relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all duration-200 shadow-md ${
-          activeVoice === 'female'
+        onClick={handleMainButtonClick}
+        disabled={disabled || !textToSpeak.trim() || playbackState === 'loading'}
+        className={`group relative flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-200 shadow-md ${
+          playbackState === 'playing'
             ? 'bg-rose-500 text-white shadow-rose-500/40 ring-4 ring-rose-400/50 scale-105'
-            : 'bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white border-2 border-pink-400/60 shadow-pink-900/40 hover:scale-[1.02] active:scale-[0.98]'
+            : playbackState === 'paused'
+            ? 'bg-amber-500 text-slate-950 ring-4 ring-amber-400/40 scale-102 font-black'
+            : 'bg-gradient-to-r from-pink-600 via-rose-600 to-indigo-600 hover:from-pink-500 hover:to-rose-500 text-white border-2 border-pink-400/60 shadow-pink-900/40 hover:scale-[1.02] active:scale-[0.98]'
         } ${disabled || !textToSpeak.trim() ? 'opacity-40 cursor-not-allowed saturate-50' : 'cursor-pointer'}`}
       >
-        <span className="text-lg leading-none" role="img" aria-label="girl">
-          👧
+        <span className="text-base leading-none" role="img" aria-label="voice assistant">
+          🎙️
         </span>
+
         <div className="flex items-center gap-1.5">
-          <span>{strings.girlVoice}</span>
-          {isLoading === 'female' ? (
+          <span>
+            {playbackState === 'loading'
+              ? 'Loading...'
+              : playbackState === 'playing'
+              ? 'Speaking (Click Pause)'
+              : playbackState === 'paused'
+              ? 'Paused (Click Resume)'
+              : 'Voice Assistant'}
+          </span>
+
+          {playbackState === 'loading' ? (
             <Loader2 className="w-4 h-4 animate-spin text-white" />
-          ) : activeVoice === 'female' ? (
-            <Square className="w-3.5 h-3.5 fill-current" />
+          ) : playbackState === 'playing' ? (
+            <Pause className="w-3.5 h-3.5 fill-current" />
+          ) : playbackState === 'paused' ? (
+            <Play className="w-3.5 h-3.5 fill-current text-slate-950" />
           ) : (
             <Volume2 className="w-4 h-4 text-white group-hover:scale-110 transition-transform" />
           )}
         </div>
 
-        {/* Live sound wave for girl voice */}
-        {activeVoice === 'female' && (
+        {/* Live sound wave when playing */}
+        {playbackState === 'playing' && (
           <span className="flex items-center gap-0.5 ml-1">
             <span className="w-1 h-3.5 bg-white rounded-full animate-bounce [animation-delay:-0.2s]" />
             <span className="w-1 h-4.5 bg-white rounded-full animate-bounce [animation-delay:-0.1s]" />
@@ -419,54 +464,42 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
         )}
       </button>
 
-      {/* 👦 Boy Voice Button - Vibrant Cobalt / Blue */}
-      <button
-        type="button"
-        onClick={() => playVoice('male')}
-        disabled={disabled || !textToSpeak.trim() || isLoading !== null}
-        className={`group relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all duration-200 shadow-md ${
-          activeVoice === 'male'
-            ? 'bg-blue-500 text-white shadow-blue-500/40 ring-4 ring-blue-400/50 scale-105'
-            : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-2 border-blue-400/60 shadow-blue-900/40 hover:scale-[1.02] active:scale-[0.98]'
-        } ${disabled || !textToSpeak.trim() ? 'opacity-40 cursor-not-allowed saturate-50' : 'cursor-pointer'}`}
-      >
-        <span className="text-lg leading-none" role="img" aria-label="boy">
-          👦
-        </span>
-        <div className="flex items-center gap-1.5">
-          <span>{strings.boyVoice}</span>
-          {isLoading === 'male' ? (
-            <Loader2 className="w-4 h-4 animate-spin text-white" />
-          ) : activeVoice === 'male' ? (
-            <Square className="w-3.5 h-3.5 fill-current" />
-          ) : (
-            <Volume2 className="w-4 h-4 text-white group-hover:scale-110 transition-transform" />
-          )}
-        </div>
-
-        {/* Live sound wave for boy voice */}
-        {activeVoice === 'male' && (
-          <span className="flex items-center gap-0.5 ml-1">
-            <span className="w-1 h-3.5 bg-white rounded-full animate-bounce [animation-delay:-0.2s]" />
-            <span className="w-1 h-4.5 bg-white rounded-full animate-bounce [animation-delay:-0.1s]" />
-            <span className="w-1 h-3 bg-white rounded-full animate-bounce" />
-          </span>
-        )}
-      </button>
-
-      {/* Stop button when speaking */}
-      {activeVoice && (
+      {/* Dedicated Pause / Resume Button when active */}
+      {(playbackState === 'playing' || playbackState === 'paused') && (
         <button
           type="button"
-          onClick={stopAllAudio}
-          className="p-2.5 rounded-xl bg-slate-800 text-rose-400 hover:text-white hover:bg-rose-600 border-2 border-slate-700 hover:border-rose-500 transition-colors shadow-md cursor-pointer"
-          title="Stop speech"
+          onClick={playbackState === 'playing' ? pauseAudio : resumeAudio}
+          className="flex items-center gap-1 px-3 py-2 rounded-xl bg-slate-800 text-amber-300 hover:text-white hover:bg-amber-600 border-2 border-slate-700 hover:border-amber-400 text-xs font-bold transition-all shadow-md cursor-pointer"
+          title={playbackState === 'playing' ? 'Pause playback' : 'Resume playback'}
         >
-          <VolumeX className="w-4 h-4" />
+          {playbackState === 'playing' ? (
+            <>
+              <Pause className="w-3.5 h-3.5" />
+              <span>Pause</span>
+            </>
+          ) : (
+            <>
+              <Play className="w-3.5 h-3.5 fill-current" />
+              <span>Resume</span>
+            </>
+          )}
         </button>
       )}
 
-      {/* Speed Selector - High Contrast */}
+      {/* Stop button when speaking or paused */}
+      {(playbackState === 'playing' || playbackState === 'paused') && (
+        <button
+          type="button"
+          onClick={stopAllAudio}
+          className="flex items-center gap-1 px-3 py-2 rounded-xl bg-slate-800 text-rose-400 hover:text-white hover:bg-rose-600 border-2 border-slate-700 hover:border-rose-500 text-xs font-bold transition-colors shadow-md cursor-pointer"
+          title="Stop speech completely"
+        >
+          <Square className="w-3 h-3 fill-current" />
+          <span>Stop</span>
+        </button>
+      )}
+
+      {/* Speed Selector */}
       <div className="flex items-center gap-1 bg-[#0b1329] p-1 rounded-xl border-2 border-indigo-500/30 text-xs">
         {[0.8, 1.0, 1.2].map((spd) => (
           <button

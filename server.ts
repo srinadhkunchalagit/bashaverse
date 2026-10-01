@@ -21,74 +21,103 @@ const ai = new GoogleGenAI({
 
 // 1. Translation Endpoint
 app.post('/api/translate', async (req: Request, res: Response) => {
-  try {
-    const { text, sourceLangCode, sourceLangName, targetLangCode, targetLangName } = req.body;
+  const { text, sourceLangCode, sourceLangName, targetLangCode, targetLangName } = req.body || {};
 
-    if (!text || !targetLangCode) {
-      return res.status(400).json({ error: 'Text and target language are required.' });
-    }
+  if (!text || !text.trim() || !targetLangCode) {
+    return res.status(400).json({ error: 'Text and target language are required.' });
+  }
 
-    const prompt = `You are a world-class professional translator and linguistic expert.
-Translate the following text accurately, preserving nuance, cultural context, and natural flow.
-Source Language: ${sourceLangCode === 'auto' ? 'Auto-Detect the language' : `${sourceLangName} (${sourceLangCode})`}
+  const cleanText = text.trim();
+
+  // Tier 1: Try Gemini AI (Primary: gemini-3.8-flash, Secondary: gemini-3.1-flash-lite)
+  if (process.env.GEMINI_API_KEY) {
+    const prompt = `You are a world-class professional translator and linguistic expert like Google Translate.
+Accurately translate the text while capturing full conversational and cultural nuance.
+Source Language: ${sourceLangCode === 'auto' ? 'Auto-Detect language' : `${sourceLangName} (${sourceLangCode})`}
 Target Language: ${targetLangName} (${targetLangCode})
 
 Input text:
-"""${text}"""
+"""${cleanText}"""
 
-Provide a JSON response with:
-1. "translation": The exact translated text in ${targetLangName}.
-2. "transliteration": Romanized phonetic pronunciation guide (how to pronounce it using English/Latin alphabet, especially helpful for Indian scripts like Telugu, Hindi, Tamil, Bengali or Asian/Cyrillic/Arabic scripts).
-3. "detectedSourceLang": If source was auto-detect, specify the identified source language name, otherwise empty.`;
+CRITICAL INSTRUCTIONS FOR NATIVE SCRIPT AND ACCURATE TRANSLATION:
+1. "detectedSourceLang": Identify the true language of the input.
+   - If the user wrote an Indian language (e.g., Telugu, Hindi, Tamil, Kannada, Malayalam, Bengali, Marathi, Gujarati, Punjabi) using English/Latin alphabet (e.g. "ela unnaru" or "meeru ela unnaru" is Telugu; "namaste kaise ho" is Hindi; "epdi irukinga" is Tamil; "kemon acho" is Bengali), identify that language (e.g. "Telugu", "Hindi", "Tamil").
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            translation: {
-              type: Type.STRING,
-              description: 'The translated text in the target language',
-            },
-            transliteration: {
-              type: Type.STRING,
-              description: 'Romanized phonetic pronunciation guide',
-            },
-            detectedSourceLang: {
-              type: Type.STRING,
-              description: 'Detected language name if auto-detected',
+2. "sourceNativeScript":
+   - If the input was written in English/Latin letters but represents an Indian or regional language, convert the user's input into its authentic native script (e.g., "ela unnaru" -> "ఎలా ఉన్నారు", "namaste aap kaise ho" -> "नमस्ते आप कैसे हो", "meeru em chesthunnaru" -> "మీరు ఏమి చేస్తున్నారు").
+   - If already in native script or standard English, return the text in native script.
+
+3. "translation":
+   - The exact, highly natural translation in ${targetLangName} (${targetLangCode}) matching the quality of Google Translate.
+   - If the source and target language are the same (e.g. user typed Telugu in English letters "ela unnaru", and target is Telugu), provide the proper native script in "translation" ("ఎలా ఉన్నారు?").
+
+4. "transliteration":
+   - Romanized phonetic pronunciation guide for the translation (e.g. "Aap kaise hain?" or "Ela unnaru?").`;
+
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+    for (const modelName of modelsToTry) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                translation: {
+                  type: Type.STRING,
+                  description: 'The translated text in the target language',
+                },
+                transliteration: {
+                  type: Type.STRING,
+                  description: 'Romanized phonetic pronunciation guide',
+                },
+                detectedSourceLang: {
+                  type: Type.STRING,
+                  description: 'Detected language name if auto-detected',
+                },
+                sourceNativeScript: {
+                  type: Type.STRING,
+                  description: 'Input text converted to its native script if typed in English letters',
+                },
+              },
+              required: ['translation'],
             },
           },
-          required: ['translation'],
-        },
+        });
+
+        const parsed = JSON.parse(response.text || '{}');
+        if (parsed.translation && parsed.translation.trim()) {
+          return res.json({
+            translation: parsed.translation.trim(),
+            transliteration: parsed.transliteration || '',
+            detectedSourceLang: parsed.detectedSourceLang || '',
+            sourceNativeScript: parsed.sourceNativeScript || '',
+          });
+        }
+      } catch (geminiError: any) {
+        console.warn(`Gemini (${modelName}) translation error:`, geminiError?.message);
+      }
+    }
+  }
+
+  // Tier 2: High-reliability Google Translate engine (dict-chrome-ex) + Google Input Tools transliteration
+  try {
+    const sl = sourceLangCode === 'auto' ? 'auto' : sourceLangCode;
+    const tl = targetLangCode;
+    const gUrl = `https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=${encodeURIComponent(
+      sl
+    )}&tl=${encodeURIComponent(tl)}&dt=t&dt=rm&q=${encodeURIComponent(cleanText)}`;
+
+    const gRes = await fetch(gUrl, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        Accept: '*/*',
       },
     });
 
-    const parsed = JSON.parse(response.text || '{}');
-    if (parsed.translation) {
-      return res.json({
-        translation: parsed.translation || '',
-        transliteration: parsed.transliteration || '',
-        detectedSourceLang: parsed.detectedSourceLang || '',
-      });
-    }
-  } catch (geminiError: any) {
-    console.warn('Gemini translation error, falling back to Google Translate engine:', geminiError?.message);
-  }
-
-  // Fallback to Google Translate
-  try {
-    const { text, sourceLangCode, targetLangCode } = req.body;
-    const sl = sourceLangCode === 'auto' ? 'auto' : sourceLangCode;
-    const tl = targetLangCode;
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(
-      sl
-    )}&tl=${encodeURIComponent(tl)}&dt=t&dt=rm&q=${encodeURIComponent((text || '').trim())}`;
-
-    const gRes = await fetch(url);
     if (gRes.ok) {
       const gData = await gRes.json();
       let fullTranslation = '';
@@ -106,15 +135,37 @@ Provide a JSON response with:
       }
 
       let detectedSourceLang = '';
-      if (sourceLangCode === 'auto' && gData[2] && typeof gData[2] === 'string') {
+      if (gData && typeof gData[2] === 'string') {
         detectedSourceLang = gData[2];
+      }
+
+      // Check if source text was typed in English letters and can be converted to native Indic script
+      let sourceNativeScript = '';
+      const checkLang = (detectedSourceLang || sourceLangCode || 'hi').toLowerCase();
+      const indicCodes = ['hi', 'te', 'ta', 'bn', 'mr', 'gu', 'kn', 'ml', 'pa', 'or', 'ur'];
+      if (indicCodes.includes(checkLang) && /^[a-zA-Z0-9\s.,!?'"()-]+$/.test(cleanText)) {
+        try {
+          const inputToolsUrl = `https://inputtools.google.com/request?text=${encodeURIComponent(
+            cleanText
+          )}&itc=${checkLang}-t-i0-und&num=1`;
+          const itRes = await fetch(inputToolsUrl);
+          if (itRes.ok) {
+            const itData = await itRes.json();
+            if (itData && itData[0] === 'SUCCESS' && itData[1]?.[0]?.[1]?.[0]) {
+              sourceNativeScript = itData[1][0][1][0];
+            }
+          }
+        } catch (itErr) {
+          console.warn('Google Input Tools transliteration failed:', itErr);
+        }
       }
 
       if (fullTranslation.trim()) {
         return res.json({
-          translation: fullTranslation,
+          translation: fullTranslation.trim(),
           transliteration,
           detectedSourceLang,
+          sourceNativeScript,
         });
       }
     }
@@ -265,8 +316,12 @@ app.post('/api/transcribe', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Audio data is required.' });
     }
 
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(503).json({ error: 'Gemini API key is not configured for audio transcription.' });
+    }
+
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-transcribe',
+      model: 'gemini-3.8-flash',
       contents: {
         parts: [
           {
@@ -307,8 +362,9 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, () => {
-    console.log(`BhashaVerse server running on port ${PORT}`);
+  const HOST = '0.0.0.0';
+  app.listen(Number(PORT), HOST, () => {
+    console.log(`BhashaVerse server running on http://${HOST}:${PORT}`);
   });
 }
 

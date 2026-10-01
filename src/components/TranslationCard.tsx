@@ -17,6 +17,7 @@ import { LanguageSelector } from './LanguageSelectorModal';
 import { VoiceInputButton } from './VoiceInputButton';
 import { VoiceOutputControls } from './VoiceOutputControls';
 import { translateText } from '../utils/translator';
+import { speakFemaleVoice, stopCurrentSpeech } from '../utils/speechSpeaker';
 
 interface TranslationCardProps {
   sourceLang: Language;
@@ -43,19 +44,24 @@ export const TranslationCard: React.FC<TranslationCardProps> = ({
   const [translatedText, setTranslatedText] = useState('');
   const [transliteration, setTransliteration] = useState('');
   const [detectedLangName, setDetectedLangName] = useState('');
+  const [sourceNativeScript, setSourceNativeScript] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleTranslate = async () => {
-    if (!inputText.trim()) return;
+  const [isPlayingNativeAudio, setIsPlayingNativeAudio] = useState(false);
+  const [copiedNative, setCopiedNative] = useState(false);
+
+  const executeTranslate = async (textToTranslate: string) => {
+    const clean = textToTranslate.trim();
+    if (!clean) return;
 
     setIsLoading(true);
     setErrorMessage(null);
 
     try {
       const data = await translateText(
-        inputText,
+        clean,
         sourceLang.code,
         sourceLang.name,
         targetLang.code,
@@ -65,14 +71,16 @@ export const TranslationCard: React.FC<TranslationCardProps> = ({
       setTranslatedText(data.translation || '');
       setTransliteration(data.transliteration || '');
       setDetectedLangName(data.detectedSourceLang || '');
+      setSourceNativeScript(data.sourceNativeScript || '');
 
       const result: TranslationResult = {
-        originalText: inputText,
+        originalText: clean,
         sourceLang: data.detectedSourceLang || sourceLang.name,
         targetLang: targetLang.name,
         translatedText: data.translation,
         transliteration: data.transliteration,
         detectedSourceLang: data.detectedSourceLang,
+        sourceNativeScript: data.sourceNativeScript,
         timestamp: Date.now(),
       };
 
@@ -89,11 +97,43 @@ export const TranslationCard: React.FC<TranslationCardProps> = ({
     }
   };
 
+  const handleTranslate = async () => {
+    await executeTranslate(inputText);
+  };
+
+  const handlePlayNativeScript = () => {
+    if (!sourceNativeScript.trim()) return;
+    if (isPlayingNativeAudio) {
+      stopCurrentSpeech();
+      setIsPlayingNativeAudio(false);
+      return;
+    }
+
+    const langToSpeak = detectedLangName || sourceLang.code || 'hi';
+    speakFemaleVoice(
+      sourceNativeScript,
+      langToSpeak,
+      detectedLangName,
+      1.0,
+      () => setIsPlayingNativeAudio(true),
+      () => setIsPlayingNativeAudio(false),
+      () => setIsPlayingNativeAudio(false)
+    );
+  };
+
+  const handleCopyNative = () => {
+    if (!sourceNativeScript) return;
+    navigator.clipboard.writeText(sourceNativeScript);
+    setCopiedNative(true);
+    setTimeout(() => setCopiedNative(false), 2000);
+  };
+
   const handleClear = () => {
     setInputText('');
     setTranslatedText('');
     setTransliteration('');
     setDetectedLangName('');
+    setSourceNativeScript('');
     setErrorMessage(null);
   };
 
@@ -183,7 +223,9 @@ export const TranslationCard: React.FC<TranslationCardProps> = ({
                 <VoiceInputButton
                   sourceLangBcp47={sourceLang.bcp47}
                   onTranscription={(text) => {
-                    setInputText((prev) => (prev ? `${prev} ${text}` : text));
+                    const combined = inputText ? `${inputText} ${text}` : text;
+                    setInputText(combined);
+                    executeTranslate(combined);
                   }}
                   strings={strings}
                 />
@@ -212,6 +254,58 @@ export const TranslationCard: React.FC<TranslationCardProps> = ({
                 className="w-full bg-[#070b16] border-2 border-slate-700 hover:border-slate-600 focus:border-cyan-400 rounded-xl p-4 text-slate-50 placeholder-slate-400 text-sm sm:text-base resize-none focus:outline-none focus:ring-2 focus:ring-cyan-400/25 transition-all font-sans leading-relaxed shadow-inner"
               />
             </div>
+
+            {/* Native Script Transliteration for Romanized / English-letter Indian Input */}
+            {sourceNativeScript && sourceNativeScript.trim() !== inputText.trim() && (
+              <div className="mt-3 p-3.5 rounded-xl bg-gradient-to-r from-indigo-950/90 via-[#0e1938] to-slate-900 border-2 border-cyan-400/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-lg animate-in fade-in">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-cyan-300 font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40">
+                      {detectedLangName || 'Native'} Script
+                    </span>
+                    <span className="text-[11px] text-amber-300 font-semibold">
+                      (Converted from English letters)
+                    </span>
+                  </div>
+                  <p className="text-white font-black text-base sm:text-lg tracking-wide font-sans">{sourceNativeScript}</p>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={handlePlayNativeScript}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                      isPlayingNativeAudio
+                        ? 'bg-rose-500 text-white border-rose-400'
+                        : 'bg-slate-800 hover:bg-pink-600 text-pink-300 hover:text-white border-slate-700 hover:border-pink-400'
+                    }`}
+                    title="Listen to native pronunciation"
+                  >
+                    <Volume2 className="w-3.5 h-3.5" />
+                    <span>{isPlayingNativeAudio ? 'Stop' : 'Listen'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyNative}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold transition-all cursor-pointer"
+                    title="Copy native script"
+                  >
+                    {copiedNative ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedNative ? 'Copied' : 'Copy'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setInputText(sourceNativeScript)}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-xs transition-colors cursor-pointer shadow-sm"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>Use in Input</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Character counter & Helper */}
             <div className="flex items-center justify-between text-xs text-slate-300 mt-2 px-1 font-medium">
@@ -357,12 +451,12 @@ export const TranslationCard: React.FC<TranslationCardProps> = ({
             </div>
           </div>
 
-          {/* 3. DUAL VOICE (GIRL & BOY) AUDIO PRONUNCIATION */}
+          {/* 3. VOICE ASSISTANT AUDIO PRONUNCIATION */}
           <div className="mt-4 pt-3.5 border-t-2 border-[#1c294a]">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
                 <Volume2 className="w-4 h-4 text-cyan-400" />
-                <span>Listen Clear Voice:</span>
+                <span>Voice Assistant Audio:</span>
               </div>
 
               {/* Voice Output Controls: Girl (👧) & Boy (👦) */}

@@ -8,6 +8,7 @@ export interface TranslationResponse {
   translation: string;
   transliteration?: string;
   detectedSourceLang?: string;
+  sourceNativeScript?: string;
 }
 
 export async function translateText(
@@ -22,7 +23,7 @@ export async function translateText(
     throw new Error('Please provide text to translate.');
   }
 
-  // Tier 1: Try backend /api/translate
+  // Tier 1: Try backend /api/translate (Gemini AI + server-side Google Translate with Indic transliteration)
   try {
     const response = await fetch('/api/translate', {
       method: 'POST',
@@ -49,69 +50,79 @@ export async function translateText(
           translation: data.translation,
           transliteration: data.transliteration || '',
           detectedSourceLang: data.detectedSourceLang || '',
+          sourceNativeScript: data.sourceNativeScript || '',
         };
       }
     }
   } catch (backendError) {
-    console.warn('Backend API translation unavailable or returned non-JSON, falling back to client-side engine:', backendError);
+    console.warn('Backend API translation unavailable, falling back to direct translation engine:', backendError);
   }
 
-  // Tier 2: Free Google Translate Web Engine (Works everywhere including Vercel static deployments without backend)
+  // Tier 2: Direct Google Translate Engine (using high-reliability dict-chrome-ex endpoint)
   try {
     const sl = sourceLangCode === 'auto' ? 'auto' : sourceLangCode;
     const tl = targetLangCode;
 
     // dt=t (translation), dt=rm (transliteration / romanization)
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(
+    const url = `https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=${encodeURIComponent(
       sl
     )}&tl=${encodeURIComponent(tl)}&dt=t&dt=rm&q=${encodeURIComponent(cleanText)}`;
 
     const gResponse = await fetch(url);
-    if (!gResponse.ok) {
-      throw new Error(`Translation service returned status ${gResponse.status}`);
-    }
+    if (gResponse.ok) {
+      const gData = await gResponse.json();
+      let fullTranslation = '';
+      let transliteration = '';
 
-    const gData = await gResponse.json();
-
-    // Parse Google Translate single API response structure
-    // gData[0] is an array of sentence parts: [[translatedPart, originalPart], ...]
-    let fullTranslation = '';
-    let transliteration = '';
-
-    if (Array.isArray(gData) && Array.isArray(gData[0])) {
-      for (const item of gData[0]) {
-        if (item && item[0]) {
-          fullTranslation += item[0];
-        }
-        // romanization / transliteration often in item[2] or item[3]
-        if (item && item[2] && typeof item[2] === 'string' && !transliteration) {
-          transliteration = item[2];
-        } else if (item && item[3] && typeof item[3] === 'string' && !transliteration) {
-          transliteration = item[3];
+      if (Array.isArray(gData) && Array.isArray(gData[0])) {
+        for (const item of gData[0]) {
+          if (item && item[0]) {
+            fullTranslation += item[0];
+          }
+          if (item && item[2] && typeof item[2] === 'string' && !transliteration) {
+            transliteration = item[2];
+          } else if (item && item[3] && typeof item[3] === 'string' && !transliteration) {
+            transliteration = item[3];
+          }
         }
       }
-    }
 
-    // Detected language is at gData[2] or gData[8]?
-    let detectedSourceLang = '';
-    if (sourceLangCode === 'auto' && gData[2] && typeof gData[2] === 'string') {
-      detectedSourceLang = gData[2];
-    }
+      let detectedSourceLang = '';
+      if (gData && typeof gData[2] === 'string') {
+        detectedSourceLang = gData[2];
+      }
 
-    if (fullTranslation.trim()) {
-      return {
-        translation: fullTranslation,
-        transliteration: transliteration || '',
-        detectedSourceLang: detectedSourceLang || '',
-      };
+      // Check if input can be transliterated to native script via Google Input Tools
+      let sourceNativeScript = '';
+      const checkLang = (detectedSourceLang || sourceLangCode || 'hi').toLowerCase();
+      const indicCodes = ['hi', 'te', 'ta', 'bn', 'mr', 'gu', 'kn', 'ml', 'pa', 'or', 'ur'];
+      if (indicCodes.includes(checkLang) && /^[a-zA-Z0-9\s.,!?'"()-]+$/.test(cleanText)) {
+        try {
+          const inputToolsUrl = `https://inputtools.google.com/request?text=${encodeURIComponent(cleanText)}&itc=${checkLang}-t-i0-und&num=1`;
+          const itRes = await fetch(inputToolsUrl);
+          if (itRes.ok) {
+            const itData = await itRes.json();
+            if (itData && itData[0] === 'SUCCESS' && itData[1]?.[0]?.[1]?.[0]) {
+              sourceNativeScript = itData[1][0][1][0];
+            }
+          }
+        } catch {
+          // ignore transliteration error
+        }
+      }
+
+      if (fullTranslation.trim()) {
+        return {
+          translation: fullTranslation,
+          transliteration: transliteration || '',
+          detectedSourceLang: detectedSourceLang || '',
+          sourceNativeScript,
+        };
+      }
     }
   } catch (clientError: any) {
-    console.error('Client-side translation fallback error:', clientError);
-    throw new Error(
-      clientError.message ||
-        'Unable to translate. Please check your internet connection and try again.'
-    );
+    console.warn('Client-side Google Translate error, trying fallback:', clientError);
   }
 
-  throw new Error('Translation returned empty result. Please try again.');
+  throw new Error('Unable to translate at this moment. Please check your internet connection and try again.');
 }

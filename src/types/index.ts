@@ -25,12 +25,14 @@ export type IndianAppLocale =
   | 'as';
 
 export interface TranslationResult {
+  id?: string;
   originalText: string;
   sourceLang: string;
   targetLang: string;
   translatedText: string;
   transliteration?: string;
   detectedSourceLang?: string;
+  sourceNativeScript?: string;
   audioPronunciationNotes?: string;
   formality?: string;
   timestamp: number;

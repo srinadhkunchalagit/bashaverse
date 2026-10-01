@@ -33,18 +33,19 @@ export default async function handler(req: any, res: any) {
           },
         });
 
-        const prompt = `You are a world-class professional translator and linguistic expert.
-Translate the following text accurately, preserving nuance, cultural context, and natural flow.
+        const prompt = `You are a world-class professional translator and linguistic expert like Google Translate.
+Translate accurately, preserving nuance, conversational tone, and natural flow.
 Source Language: ${sourceLangCode === 'auto' ? 'Auto-Detect the language' : `${sourceLangName} (${sourceLangCode})`}
 Target Language: ${targetLangName} (${targetLangCode})
 
 Input text:
 """${text}"""
 
-Provide a JSON response with:
-1. "translation": The exact translated text in ${targetLangName}.
-2. "transliteration": Romanized phonetic pronunciation guide (how to pronounce it using English/Latin alphabet, especially helpful for Indian scripts like Telugu, Hindi, Tamil, Bengali or Asian/Cyrillic/Arabic scripts).
-3. "detectedSourceLang": If source was auto-detect, specify the identified source language name, otherwise empty.`;
+CRITICAL INSTRUCTIONS:
+1. "detectedSourceLang": Identify true source language (e.g., Telugu, Hindi, Tamil, English).
+2. "sourceNativeScript": If user typed an Indian or regional language using English/Latin alphabet (e.g. "ela unnaru", "namaste kaise ho", "epdi irukinga"), convert it to its authentic native script (e.g. "ఎలా ఉన్నారు", "नमस्ते कैसे हो").
+3. "translation": Natural, accurate translation into ${targetLangName}.
+4. "transliteration": Romanized phonetic pronunciation guide.`;
 
         const response = await ai.models.generateContent({
           model: 'gemini-3.8-flash',
@@ -66,6 +67,10 @@ Provide a JSON response with:
                   type: Type.STRING,
                   description: 'Detected language name if auto-detected',
                 },
+                sourceNativeScript: {
+                  type: Type.STRING,
+                  description: 'Input text converted to its native script if typed in English letters',
+                },
               },
               required: ['translation'],
             },
@@ -78,6 +83,7 @@ Provide a JSON response with:
             translation: parsed.translation || '',
             transliteration: parsed.transliteration || '',
             detectedSourceLang: parsed.detectedSourceLang || '',
+            sourceNativeScript: parsed.sourceNativeScript || '',
           });
         }
       } catch (geminiError: any) {

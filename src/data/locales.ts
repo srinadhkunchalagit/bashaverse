@@ -16,6 +16,7 @@ export interface LocaleStrings {
   listening: string;
   stopListening: string;
   girlVoice: string;
+  voiceAssistant: string;
   boyVoice: string;
   playing: string;
   searchLanguage: string;
@@ -37,6 +38,15 @@ export interface LocaleStrings {
   charCount: string;
   samplePhrasesTitle: string;
   samplePhrases: string[];
+  deleteItem?: string;
+  deleteConfirm?: string;
+  clearAllConfirm?: string;
+  confirmYes?: string;
+  confirmCancel?: string;
+  nativeScriptLabel?: string;
+  femaleVoiceOnly?: string;
+  voiceAssistant?: string;
+  designedBy?: string;
 }
 
 export const APP_LOCALES: Record<IndianAppLocale, LocaleStrings> = {
@@ -55,7 +65,8 @@ export const APP_LOCALES: Record<IndianAppLocale, LocaleStrings> = {
     voiceInput: 'Voice Input',
     listening: 'Listening... speak now',
     stopListening: 'Stop Listening',
-    girlVoice: 'Girl Voice',
+    girlVoice: 'Voice Assistant',
+    voiceAssistant: 'Voice Assistant',
     boyVoice: 'Boy Voice',
     playing: 'Playing Voice...',
     searchLanguage: 'Search 130+ languages or country...',
@@ -98,7 +109,8 @@ export const APP_LOCALES: Record<IndianAppLocale, LocaleStrings> = {
     voiceInput: 'आवाज़ से इनपुट',
     listening: 'सुन रहे हैं... कृपया बोलें',
     stopListening: 'रोकें',
-    girlVoice: 'लड़की की आवाज़ (Girl Voice)',
+    girlVoice: 'वॉयस असिस्टेंट (Voice Assistant)',
+    voiceAssistant: 'वॉयस असिस्टेंट (Voice Assistant)',
     boyVoice: 'लड़के की आवाज़ (Boy Voice)',
     playing: 'आवाज़ चल रही है...',
     searchLanguage: '130+ भाषाएँ या देश खोजें...',
@@ -141,7 +153,8 @@ export const APP_LOCALES: Record<IndianAppLocale, LocaleStrings> = {
     voiceInput: 'వాయిస్ ఇన్పుట్',
     listening: 'వింటోంది... ఇప్పుడు మాట్లాడండి',
     stopListening: 'ఆపండి',
-    girlVoice: 'అమ్మాయి వాయిస్ (Girl Voice)',
+    girlVoice: 'వాయిస్ అసిస్టెంట్ (Voice Assistant)',
+    voiceAssistant: 'వాయిస్ అసిస్టెంట్ (Voice Assistant)',
     boyVoice: 'అబ్బాయి వాయిస్ (Boy Voice)',
     playing: 'వాయిస్ ప్లే అవుతోంది...',
     searchLanguage: '130+ ప్రపంచ & భారతీయ భాషలను వెతకండి...',
@@ -184,7 +197,8 @@ export const APP_LOCALES: Record<IndianAppLocale, LocaleStrings> = {
     voiceInput: 'குரல் உள்ளீடு',
     listening: 'கேட்கிறது... இப்போது பேசுங்கள்',
     stopListening: 'நிறுத்து',
-    girlVoice: 'பெண் குரல் (Girl Voice)',
+    girlVoice: 'குரல் உதவியாளர் (Voice Assistant)',
+    voiceAssistant: 'குரல் உதவியாளர் (Voice Assistant)',
     boyVoice: 'ஆண் குரல் (Boy Voice)',
     playing: 'குரல் ஒலிக்கிறது...',
     searchLanguage: '130+ மொழிகளைத் தேடுங்கள்...',
@@ -227,7 +241,8 @@ export const APP_LOCALES: Record<IndianAppLocale, LocaleStrings> = {
     voiceInput: 'ভয়েস ইনপুট',
     listening: 'শুনছি... এখন বলুন',
     stopListening: 'থামুন',
-    girlVoice: 'মেয়ের কণ্ঠ (Girl Voice)',
+    girlVoice: 'ভয়েস সহকারী (Voice Assistant)',
+    voiceAssistant: 'ভয়েস সহকারী (Voice Assistant)',
     boyVoice: 'ছেলের কণ্ঠ (Boy Voice)',
     playing: 'ভয়েস বাজছে...',
     searchLanguage: '১৩০+ ভাষা বা দেশ খুঁজুন...',
@@ -270,7 +285,8 @@ export const APP_LOCALES: Record<IndianAppLocale, LocaleStrings> = {
     voiceInput: 'व्हॉइस इनपुट',
     listening: 'ऐकत आहे... आता बोला',
     stopListening: 'थांबवा',
-    girlVoice: 'मुलीचा आवाज (Girl Voice)',
+    girlVoice: 'व्हॉइस असिस्टंट (Voice Assistant)',
+    voiceAssistant: 'व्हॉइस असिस्टंट (Voice Assistant)',
     boyVoice: 'मुलाचा आवाज (Boy Voice)',
     playing: 'आवाज वाजत आहे...',
     searchLanguage: '130+ भाषा शोधा...',
@@ -313,7 +329,8 @@ export const APP_LOCALES: Record<IndianAppLocale, LocaleStrings> = {
     voiceInput: 'વૉઇસ ઇનપુટ',
     listening: 'સાંભળી રહ્યા છીએ... હવે બોલો',
     stopListening: 'રોકો',
-    girlVoice: 'છોકરીનો અવાજ (Girl Voice)',
+    girlVoice: 'વૉઇસ સહાયક (Voice Assistant)',
+    voiceAssistant: 'વૉઇસ સહાયક (Voice Assistant)',
     boyVoice: 'છોકરાનો અવાજ (Boy Voice)',
     playing: 'અવાજ વગાડી રહ્યો છે...',
     searchLanguage: '130+ ભાષાઓ શોધો...',
@@ -356,7 +373,8 @@ export const APP_LOCALES: Record<IndianAppLocale, LocaleStrings> = {
     voiceInput: 'ಧ್ವನಿ ಇನ್ಪುಟ್',
     listening: 'ಕೇಳುತ್ತಿದೆ... ಈಗ ಮಾತನಾಡಿ',
     stopListening: 'ನಿಲ್ಲಿಸಿ',
-    girlVoice: 'ಹುಡುಗಿಯ ಧ್ವನಿ (Girl Voice)',
+    girlVoice: 'ಧ್ವನಿ ಸಹಾಯಕ (Voice Assistant)',
+    voiceAssistant: 'ಧ್ವನಿ ಸಹಾಯಕ (Voice Assistant)',
     boyVoice: 'ಹುಡುಗನ ಧ್ವನಿ (Boy Voice)',
     playing: 'ಧ್ವನಿ ಪ್ಲೇ ಆಗುತ್ತಿದೆ...',
     searchLanguage: '130+ ಭಾಷೆಗಳನ್ನು ಹುಡುಕಿ...',
@@ -399,7 +417,8 @@ export const APP_LOCALES: Record<IndianAppLocale, LocaleStrings> = {
     voiceInput: 'ശബ്ദ ഇൻപുട്ട്',
     listening: 'കേൾക്കുന്നു... ഇപ്പോൾ സംസാരിക്കുക',
     stopListening: 'നിർത്തുക',
-    girlVoice: 'പെൺകുട്ടിയുടെ ശബ്ദം (Girl Voice)',
+    girlVoice: 'വോയ്സ് അസിസ്റ്റന്റ് (Voice Assistant)',
+    voiceAssistant: 'വോയ്സ് അസിസ്റ്റന്റ് (Voice Assistant)',
     boyVoice: 'ആൺകുട്ടിയുടെ ശബ്ദം (Boy Voice)',
     playing: 'ശബ്ദം പ്ലേ ചെയ്യുന്നു...',
     searchLanguage: '130+ ഭാഷകൾ തിരയുക...',

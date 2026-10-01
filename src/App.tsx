@@ -84,6 +84,14 @@ export default function App() {
     localStorage.removeItem('bhasha_history');
   };
 
+  const handleDeleteItem = (index: number) => {
+    setHistory((prev) => {
+      const updated = prev.filter((_, idx) => idx !== index);
+      localStorage.setItem('bhasha_history', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   const handleSwapLanguages = () => {
     if (sourceLang.code === 'auto') return;
     const prevSource = sourceLang;
@@ -139,14 +147,17 @@ export default function App() {
         <div className="text-center max-w-3xl mx-auto space-y-2.5 pt-2">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#0f172a] border-2 border-indigo-500/40 text-cyan-300 text-xs shadow-xl backdrop-blur-md">
             <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
-            <span className="font-extrabold text-white">130+ Total World & All Indian Languages</span>
+            <span className="font-extrabold text-white">130+ Languages & Indic Scripts</span>
             <span className="text-indigo-400">·</span>
-            <span className="text-amber-300 font-bold">👧 Girl & 👦 Boy Voices</span>
+            <span className="text-amber-300 font-bold">🎙️ Voice Assistant & Native Script</span>
           </div>
 
           <h2 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white drop-shadow-lg">
             {strings.appName}
           </h2>
+          <div className="inline-block px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/20 via-indigo-500/20 to-cyan-500/20 border border-amber-400/40 text-xs font-bold text-amber-300 shadow-sm">
+            ✨ Designed and Directed by <span className="font-extrabold text-white">Srinadh Kunchala</span>
+          </div>
           <p className="text-sm sm:text-base text-slate-200 max-w-2xl mx-auto leading-relaxed font-medium">
             {strings.appSubtitle}
           </p>
@@ -216,10 +227,10 @@ export default function App() {
                 <Volume2 className="w-5 h-5" />
               </div>
               <h3 className="text-xs sm:text-sm font-extrabold text-white tracking-wide">
-                Girl & Boy Clear Voices
+                🎙️ Voice Assistant
               </h3>
               <p className="text-xs text-slate-300 leading-normal font-medium">
-                Crystal-clear native pronunciation with female (👧) and male (👦) voice persona options.
+                Crystal-clear native speech pronunciation with smart pause, resume, and audio playback controls.
               </p>
             </div>
 
@@ -245,6 +256,7 @@ export default function App() {
         onClose={() => setIsHistoryOpen(false)}
         history={history}
         onClearHistory={handleClearHistory}
+        onDeleteItem={handleDeleteItem}
         onSelectResult={(item) => {
           const src = LANGUAGES.find((l) => l.name === item.sourceLang);
           const tgt = LANGUAGES.find((l) => l.name === item.targetLang);
@@ -263,9 +275,11 @@ export default function App() {
             <span className="text-slate-300">Global & Indian Multilingual Translation Platform</span>
           </div>
           <div className="flex items-center gap-3 text-xs text-slate-400">
-            <span className="text-cyan-300 font-semibold">Gemini AI Engine</span>
+            <span className="text-amber-300 font-bold">
+              Designed & Directed by Srinadh Kunchala
+            </span>
             <span>·</span>
-            <span className="text-indigo-300">Voice Synthesis & Cosmos Motion</span>
+            <span className="text-cyan-300 font-semibold">Gemini AI Engine</span>
           </div>
         </div>
       </footer>

@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Loader2, Sparkles, Check } from 'lucide-react';
 import { LocaleStrings } from '../data/locales';
 
-// Extend window interface for SpeechRecognition
 declare global {
   interface Window {
     SpeechRecognition: any;
@@ -27,25 +26,35 @@ export const VoiceInputButton: React.FC<VoiceInputButtonProps> = ({
   const [interimText, setInterimText] = useState('');
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
 
   const recognitionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<any>(null);
+  const latestSpeechTextRef = useRef<string>('');
 
   useEffect(() => {
     return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-      }
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        mediaRecorderRef.current.stop();
-      }
+      stopListening();
     };
   }, []);
+
+  const getEffectiveLanguage = (): string => {
+    if (sourceLangBcp47 && sourceLangBcp47 !== 'auto') {
+      return sourceLangBcp47;
+    }
+    if (typeof navigator !== 'undefined' && navigator.language) {
+      return navigator.language;
+    }
+    return 'en-IN';
+  };
 
   const startListening = async () => {
     setErrorMsg(null);
     setInterimText('');
+    latestSpeechTextRef.current = '';
+    setRecordingSeconds(0);
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -56,31 +65,34 @@ export const VoiceInputButton: React.FC<VoiceInputButtonProps> = ({
 
         recognition.continuous = true;
         recognition.interimResults = true;
-        recognition.lang = sourceLangBcp47 === 'auto' ? 'en-US' : sourceLangBcp47;
+        recognition.maxAlternatives = 1;
+        recognition.lang = getEffectiveLanguage();
 
         recognition.onstart = () => {
           setIsListening(true);
+          timerRef.current = setInterval(() => {
+            setRecordingSeconds((prev) => prev + 1);
+          }, 1000);
         };
 
+        // Anti-duplication on mobile & laptop: Rebuild cumulative transcript from all result indices
         recognition.onresult = (event: any) => {
+          let fullTranscript = '';
           let currentInterim = '';
-          let finalTranscript = '';
 
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
+          for (let i = 0; i < event.results.length; ++i) {
+            const transcript = event.results[i][0]?.transcript || '';
             if (event.results[i].isFinal) {
-              finalTranscript += event.results[i][0].transcript;
+              fullTranscript += (fullTranscript ? ' ' : '') + transcript.trim();
             } else {
-              currentInterim += event.results[i][0].transcript;
+              currentInterim += (currentInterim ? ' ' : '') + transcript.trim();
             }
           }
 
-          if (currentInterim) {
-            setInterimText(currentInterim);
-          }
-
-          if (finalTranscript) {
-            onTranscription(finalTranscript);
-            setInterimText('');
+          const combined = fullTranscript || currentInterim;
+          if (combined) {
+            latestSpeechTextRef.current = fullTranscript || currentInterim;
+            setInterimText(currentInterim || fullTranscript);
           }
         };
 
@@ -90,33 +102,56 @@ export const VoiceInputButton: React.FC<VoiceInputButtonProps> = ({
             setErrorMsg('Microphone access denied. Please allow microphone permissions.');
             stopListening();
           } else if (event.error === 'no-speech') {
-            // keep listening or reset
+            // Keep active
           } else {
-            // Fallback to media recorder if recognition network failed
-            fallbackToMediaRecorder();
+            // If browser speech recognition fails on laptop/mobile network, switch to Gemini audio recording
+            startGeminiAudioRecording();
           }
         };
 
         recognition.onend = () => {
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
           setIsListening(false);
           setInterimText('');
+
+          const finalText = latestSpeechTextRef.current.trim();
+          if (finalText) {
+            onTranscription(finalText);
+          }
         };
 
         recognition.start();
+        return;
       } catch (err) {
-        console.warn('Failed to start SpeechRecognition, using audio recording fallback:', err);
-        fallbackToMediaRecorder();
+        console.warn('SpeechRecognition initialization error, using Gemini audio recorder:', err);
       }
-    } else {
-      fallbackToMediaRecorder();
     }
+
+    // Direct Gemini High-Precision Audio Recording fallback
+    startGeminiAudioRecording();
   };
 
-  const fallbackToMediaRecorder = async () => {
+  const startGeminiAudioRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
       audioChunksRef.current = [];
-      const mediaRecorder = new MediaRecorder(stream);
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : MediaRecorder.isTypeSupported('audio/mp4')
+          ? 'audio/mp4'
+          : '',
+      });
       mediaRecorderRef.current = mediaRecorder;
 
       mediaRecorder.ondataavailable = (event) => {
@@ -127,22 +162,26 @@ export const VoiceInputButton: React.FC<VoiceInputButtonProps> = ({
 
       mediaRecorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const mimeType = mediaRecorder.mimeType || 'audio/webm';
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
         if (audioBlob.size > 0) {
-          await transcribeWithGemini(audioBlob);
+          await transcribeWithGemini(audioBlob, mimeType);
         }
       };
 
-      mediaRecorder.start();
+      mediaRecorder.start(250);
       setIsListening(true);
-    } catch (err) {
-      console.error('Microphone error:', err);
-      setErrorMsg('Microphone permission required for voice input.');
+      timerRef.current = setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+    } catch (err: any) {
+      console.error('Microphone recording error:', err);
+      setErrorMsg('Microphone access required. Please check browser permissions.');
       setIsListening(false);
     }
   };
 
-  const transcribeWithGemini = async (blob: Blob) => {
+  const transcribeWithGemini = async (blob: Blob, mimeType: string) => {
     setIsProcessingAudio(true);
     try {
       const reader = new FileReader();
@@ -154,20 +193,19 @@ export const VoiceInputButton: React.FC<VoiceInputButtonProps> = ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             audioBase64: base64Audio,
-            mimeType: 'audio/webm',
-            langCode: sourceLangBcp47,
+            mimeType: mimeType || 'audio/webm',
+            langCode: getEffectiveLanguage(),
           }),
         });
+
         const contentType = res.headers.get('content-type') || '';
         if (res.ok && contentType.includes('application/json')) {
           const data = await res.json();
-          if (data.text) {
-            onTranscription(data.text);
+          if (data.text && data.text.trim()) {
+            onTranscription(data.text.trim());
           } else if (data.error) {
             setErrorMsg(data.error);
           }
-        } else {
-          console.warn('Voice transcription endpoint returned non-JSON');
         }
       };
     } catch (err) {
@@ -180,12 +218,27 @@ export const VoiceInputButton: React.FC<VoiceInputButtonProps> = ({
   };
 
   const stopListening = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
     if (recognitionRef.current) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // ignore
+      }
     }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop();
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {
+        // ignore
+      }
     }
+
     setIsListening(false);
   };
 
@@ -204,27 +257,27 @@ export const VoiceInputButton: React.FC<VoiceInputButtonProps> = ({
           type="button"
           onClick={toggleListening}
           disabled={disabled || isProcessingAudio}
-          title={isListening ? strings.stopListening : strings.voiceInput}
+          title={isListening ? 'Click to Stop Speaking' : 'Click to Speak (Voice Input)'}
           className={`relative group flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all duration-200 shadow-md ${
             isListening
-              ? 'bg-rose-600 text-white shadow-rose-600/50 shadow-lg ring-4 ring-rose-400 animate-pulse'
+              ? 'bg-rose-600 text-white shadow-rose-600/50 ring-4 ring-rose-400 animate-pulse'
               : 'bg-emerald-600 hover:bg-emerald-500 text-white border-2 border-emerald-400/60 shadow-emerald-950/40 hover:scale-[1.02] active:scale-[0.98]'
           } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
         >
           {isProcessingAudio ? (
             <Loader2 className="w-4 h-4 animate-spin text-white" />
           ) : isListening ? (
-            <MicOff className="w-4 h-4 text-white" />
+            <Check className="w-4 h-4 text-white stroke-[3]" />
           ) : (
             <Mic className="w-4 h-4 text-white group-hover:scale-110 transition-transform" />
           )}
 
-          <span className="hidden sm:inline font-bold">
+          <span className="font-bold">
             {isProcessingAudio
-              ? 'Processing voice...'
+              ? 'Transcribing...'
               : isListening
-              ? strings.stopListening
-              : strings.voiceInput}
+              ? `Done Speaking (${recordingSeconds}s)`
+              : 'Voice Input'}
           </span>
 
           {/* Equalizer animation when listening */}
@@ -240,9 +293,9 @@ export const VoiceInputButton: React.FC<VoiceInputButtonProps> = ({
 
       {/* Floating Status Notification */}
       {isListening && (
-        <div className="mt-1.5 text-xs font-bold text-amber-300 bg-amber-950/90 px-3 py-1 rounded-full border border-amber-500/50 flex items-center gap-2 animate-in fade-in shadow-lg">
+        <div className="mt-1.5 text-xs font-bold text-amber-300 bg-amber-950/90 px-3 py-1 rounded-full border border-amber-500/50 flex items-center gap-2 animate-in fade-in shadow-lg max-w-xs truncate">
           <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-          <span>{interimText ? `"${interimText}..."` : strings.listening}</span>
+          <span>{interimText ? `"${interimText}"` : 'Listening... Speak naturally'}</span>
         </div>
       )}
 
