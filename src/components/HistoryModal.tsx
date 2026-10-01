@@ -32,7 +32,13 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
 
   const handleCopy = (text: string, index: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(text);
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).catch(() => {});
+      }
+    } catch {
+      // ignore
+    }
     setCopiedIndex(index);
     setTimeout(() => setCopiedIndex(null), 1500);
   };

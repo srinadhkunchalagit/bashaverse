@@ -12,7 +12,7 @@ export const ThreeBackground: React.FC<ThreeBackgroundProps> = ({
   const mountRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (intensity === 'off' || !mountRef.current) return;
+    if (typeof window === 'undefined' || intensity === 'off' || !mountRef.current) return;
 
     const container = mountRef.current;
     let animationFrameId: number;

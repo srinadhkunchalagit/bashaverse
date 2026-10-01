@@ -64,6 +64,7 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
   };
 
   const handleVoiceSearch = () => {
+    if (typeof window === 'undefined') return;
     if (isVoiceSearching) {
       stopVoiceSearch();
       return;

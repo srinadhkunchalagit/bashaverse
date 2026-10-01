@@ -123,7 +123,13 @@ export const TranslationCard: React.FC<TranslationCardProps> = ({
 
   const handleCopyNative = () => {
     if (!sourceNativeScript) return;
-    navigator.clipboard.writeText(sourceNativeScript);
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(sourceNativeScript).catch(() => {});
+      }
+    } catch {
+      // ignore
+    }
     setCopiedNative(true);
     setTimeout(() => setCopiedNative(false), 2000);
   };
@@ -139,7 +145,13 @@ export const TranslationCard: React.FC<TranslationCardProps> = ({
 
   const handleCopy = () => {
     if (!translatedText) return;
-    navigator.clipboard.writeText(translatedText);
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(translatedText).catch(() => {});
+      }
+    } catch {
+      // ignore
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

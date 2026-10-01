@@ -9,10 +9,13 @@ import { Language, IndianAppLocale, TranslationResult } from './types';
 import { Globe, Mic, Volume2, Compass } from 'lucide-react';
 
 export default function App() {
-  // App interface locale (default to Hindi or English, saved in localStorage)
+  // App interface locale (default to English, saved in localStorage)
   const [currentLocale, setCurrentLocale] = useState<IndianAppLocale>(() => {
-    const saved = localStorage.getItem('bhasha_locale') as IndianAppLocale;
-    return saved && APP_LOCALES[saved] ? saved : 'hi';
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('bhasha_locale') as IndianAppLocale;
+      if (saved && APP_LOCALES[saved]) return saved;
+    }
+    return 'en';
   });
 
   // Source and Target languages
@@ -26,12 +29,16 @@ export default function App() {
 
   // 3D Background animation intensity
   const [bgIntensity, setBgIntensity] = useState<'vibrant' | 'subtle' | 'off'>(() => {
-    const saved = localStorage.getItem('bhasha_3d_bg');
-    return (saved as any) || 'vibrant';
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('bhasha_3d_bg');
+      if (saved === 'vibrant' || saved === 'subtle' || saved === 'off') return saved;
+    }
+    return 'vibrant';
   });
 
   // Translation history
   const [history, setHistory] = useState<TranslationResult[]>(() => {
+    if (typeof window === 'undefined') return [];
     try {
       const saved = localStorage.getItem('bhasha_history');
       return saved ? JSON.parse(saved) : [];
@@ -56,7 +63,13 @@ export default function App() {
 
   const handleLocaleChange = (locale: IndianAppLocale) => {
     setCurrentLocale(locale);
-    localStorage.setItem('bhasha_locale', locale);
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('bhasha_locale', locale);
+      }
+    } catch {
+      // ignore
+    }
 
     // Auto update target language to match user's selected Indian app locale if appropriate
     const matchingLang = LANGUAGES.find((l) => l.code === locale);
@@ -68,7 +81,13 @@ export default function App() {
   const handleSaveToHistory = (result: TranslationResult) => {
     setHistory((prev) => {
       const updated = [result, ...prev.slice(0, 49)];
-      localStorage.setItem('bhasha_history', JSON.stringify(updated));
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('bhasha_history', JSON.stringify(updated));
+        }
+      } catch {
+        // ignore
+      }
       return updated;
     });
 
@@ -81,13 +100,25 @@ export default function App() {
 
   const handleClearHistory = () => {
     setHistory([]);
-    localStorage.removeItem('bhasha_history');
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('bhasha_history');
+      }
+    } catch {
+      // ignore
+    }
   };
 
   const handleDeleteItem = (index: number) => {
     setHistory((prev) => {
       const updated = prev.filter((_, idx) => idx !== index);
-      localStorage.setItem('bhasha_history', JSON.stringify(updated));
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('bhasha_history', JSON.stringify(updated));
+        }
+      } catch {
+        // ignore
+      }
       return updated;
     });
   };
@@ -102,7 +133,13 @@ export default function App() {
   const toggleBgIntensity = () => {
     setBgIntensity((prev) => {
       const next = prev === 'vibrant' ? 'subtle' : prev === 'subtle' ? 'off' : 'vibrant';
-      localStorage.setItem('bhasha_3d_bg', next);
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('bhasha_3d_bg', next);
+        }
+      } catch {
+        // ignore
+      }
       return next;
     });
   };

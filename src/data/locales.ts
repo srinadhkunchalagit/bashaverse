@@ -16,7 +16,7 @@ export interface LocaleStrings {
   listening: string;
   stopListening: string;
   girlVoice: string;
-  voiceAssistant: string;
+  voiceAssistant?: string;
   boyVoice: string;
   playing: string;
   searchLanguage: string;
@@ -45,7 +45,6 @@ export interface LocaleStrings {
   confirmCancel?: string;
   nativeScriptLabel?: string;
   femaleVoiceOnly?: string;
-  voiceAssistant?: string;
   designedBy?: string;
 }
 
@@ -56,7 +55,7 @@ export const APP_LOCALES: Record<IndianAppLocale, LocaleStrings> = {
     inputHeading: 'INPUT TEXT TO TRANSLATE',
     inputPlaceholder: 'Type text here, speak using the microphone, or pick a sample phrase...',
     outputHeading: 'TRANSLATED RESULT',
-    outputPlaceholder: 'Translation will appear here with crystal-clear girl & boy pronunciation...',
+    outputPlaceholder: 'Translation will appear here with crystal-clear pronunciation...',
     translateBtn: 'Translate Now',
     translating: 'Translating with AI...',
     clearBtn: 'Clear',

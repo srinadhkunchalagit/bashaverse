@@ -180,7 +180,11 @@ export const VoiceOutputControls: React.FC<VoiceOutputControlsProps> = ({
   };
 
   const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
-    const binaryString = window.atob(base64);
+    if (typeof window === 'undefined' && typeof atob === 'undefined') {
+      return new ArrayBuffer(0);
+    }
+    const decodeFn = typeof atob !== 'undefined' ? atob : (window as any).atob;
+    const binaryString = decodeFn(base64);
     const len = binaryString.length;
     const bytes = new Uint8Array(len);
     for (let i = 0; i < len; i++) {

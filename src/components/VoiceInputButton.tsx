@@ -51,12 +51,14 @@ export const VoiceInputButton: React.FC<VoiceInputButtonProps> = ({
   };
 
   const startListening = async () => {
+    if (typeof window === 'undefined') return;
     setErrorMsg(null);
     setInterimText('');
     latestSpeechTextRef.current = '';
     setRecordingSeconds(0);
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (SpeechRecognition) {
       try {
@@ -135,6 +137,23 @@ export const VoiceInputButton: React.FC<VoiceInputButtonProps> = ({
   };
 
   const startGeminiAudioRecording = async () => {
+    if (
+      typeof window === 'undefined' ||
+      typeof navigator === 'undefined' ||
+      !navigator.mediaDevices ||
+      typeof navigator.mediaDevices.getUserMedia !== 'function'
+    ) {
+      setErrorMsg('Microphone access is not supported in this browser/environment.');
+      setIsListening(false);
+      return;
+    }
+
+    if (typeof MediaRecorder === 'undefined') {
+      setErrorMsg('Media recording is not supported in this browser.');
+      setIsListening(false);
+      return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -145,13 +164,15 @@ export const VoiceInputButton: React.FC<VoiceInputButtonProps> = ({
       });
 
       audioChunksRef.current = [];
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported('audio/webm')
-          ? 'audio/webm'
-          : MediaRecorder.isTypeSupported('audio/mp4')
-          ? 'audio/mp4'
-          : '',
-      });
+      const isWebm =
+        typeof MediaRecorder.isTypeSupported === 'function' &&
+        MediaRecorder.isTypeSupported('audio/webm');
+      const isMp4 =
+        typeof MediaRecorder.isTypeSupported === 'function' &&
+        MediaRecorder.isTypeSupported('audio/mp4');
+      const mimeType = isWebm ? 'audio/webm' : isMp4 ? 'audio/mp4' : '';
+
+      const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       mediaRecorderRef.current = mediaRecorder;
 
       mediaRecorder.ondataavailable = (event) => {
@@ -162,10 +183,10 @@ export const VoiceInputButton: React.FC<VoiceInputButtonProps> = ({
 
       mediaRecorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
-        const mimeType = mediaRecorder.mimeType || 'audio/webm';
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        const finalMime = mediaRecorder.mimeType || 'audio/webm';
+        const audioBlob = new Blob(audioChunksRef.current, { type: finalMime });
         if (audioBlob.size > 0) {
-          await transcribeWithGemini(audioBlob, mimeType);
+          await transcribeWithGemini(audioBlob, finalMime);
         }
       };
 
@@ -182,6 +203,7 @@ export const VoiceInputButton: React.FC<VoiceInputButtonProps> = ({
   };
 
   const transcribeWithGemini = async (blob: Blob, mimeType: string) => {
+    if (typeof window === 'undefined' || typeof FileReader === 'undefined') return;
     setIsProcessingAudio(true);
     try {
       const reader = new FileReader();
