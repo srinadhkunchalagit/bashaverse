@@ -185,19 +185,19 @@ export const TranslationCard: React.FC<TranslationCardProps> = ({
           </div>
 
           {/* Swap Button - High Contrast Vibrant Indigo/Cyan */}
-          <div className="shrink-0 pt-2 sm:pt-6">
+          <div className="shrink-0 my-1 sm:my-0 sm:pt-6">
             <button
               type="button"
               onClick={onSwapLanguages}
               disabled={sourceLang.code === 'auto'}
               title={strings.swapLanguages}
-              className={`p-3 rounded-xl border-2 transition-all duration-200 shadow-md ${
+              className={`p-2.5 sm:p-3 rounded-xl border-2 transition-all duration-200 shadow-md ${
                 sourceLang.code === 'auto'
                   ? 'bg-slate-900 border-slate-800 text-slate-500 cursor-not-allowed'
                   : 'bg-indigo-600 hover:bg-cyan-400 hover:text-slate-950 text-white border-indigo-400/60 hover:border-cyan-300 shadow-indigo-600/30 hover:scale-105 active:scale-95 cursor-pointer'
               }`}
             >
-              <ArrowLeftRight className="w-4 h-4 stroke-[2.5]" />
+              <ArrowLeftRight className="w-4 h-4 stroke-[2.5] rotate-90 sm:rotate-0 transition-transform" />
             </button>
           </div>
 
@@ -354,7 +354,7 @@ export const TranslationCard: React.FC<TranslationCardProps> = ({
                 type="button"
                 onClick={handleTranslate}
                 disabled={isLoading || !inputText.trim()}
-                className={`ml-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-extrabold text-xs sm:text-sm tracking-wide shadow-xl transition-all duration-200 ${
+                className={`w-full sm:w-auto ml-0 sm:ml-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-extrabold text-xs sm:text-sm tracking-wide shadow-xl transition-all duration-200 ${
                   isLoading || !inputText.trim()
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed shadow-none border border-slate-700'
                     : 'bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:via-blue-500 hover:to-indigo-500 text-white shadow-cyan-500/30 hover:scale-[1.02] active:scale-[0.98] cursor-pointer'

@@ -179,30 +179,30 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-8 space-y-4 sm:space-y-6">
         {/* Hero Banner / Header Intro - High Contrast & No 3D in Titles */}
-        <div className="text-center max-w-3xl mx-auto space-y-2.5 pt-2">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#0f172a] border-2 border-indigo-500/40 text-cyan-300 text-xs shadow-xl backdrop-blur-md">
-            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
+        <div className="text-center max-w-3xl mx-auto space-y-2 sm:space-y-2.5 pt-1 sm:pt-2">
+          <div className="inline-flex items-center gap-1.5 sm:gap-2 px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-full bg-[#0f172a] border-2 border-indigo-500/40 text-cyan-300 text-[11px] sm:text-xs shadow-xl backdrop-blur-md flex-wrap justify-center">
+            <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-cyan-400 animate-ping" />
             <span className="font-extrabold text-white">130+ Languages & Indic Scripts</span>
-            <span className="text-indigo-400">·</span>
+            <span className="text-indigo-400 hidden xs:inline">·</span>
             <span className="text-amber-300 font-bold">🎙️ Voice Assistant & Native Script</span>
           </div>
 
-          <h2 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white drop-shadow-lg">
+          <h2 className="text-2xl sm:text-4xl md:text-5xl font-extrabold tracking-tight text-white drop-shadow-lg">
             {strings.appName}
           </h2>
-          <div className="inline-block px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/20 via-indigo-500/20 to-cyan-500/20 border border-amber-400/40 text-xs font-bold text-amber-300 shadow-sm">
+          <div className="inline-block px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-gradient-to-r from-amber-500/20 via-indigo-500/20 to-cyan-500/20 border border-amber-400/40 text-[11px] sm:text-xs font-bold text-amber-300 shadow-sm">
             ✨ Designed and Directed by <span className="font-extrabold text-white">Srinadh Kunchala</span>
           </div>
-          <p className="text-sm sm:text-base text-slate-200 max-w-2xl mx-auto leading-relaxed font-medium">
+          <p className="text-xs sm:text-base text-slate-200 max-w-2xl mx-auto leading-relaxed font-medium px-2">
             {strings.appSubtitle}
           </p>
         </div>
 
         {/* Quick Language Pair Chips */}
-        <div className="flex items-center justify-center gap-2 overflow-x-auto py-1 scrollbar-none">
-          <span className="text-xs text-amber-300 font-extrabold hidden sm:inline mr-1">
+        <div className="flex items-center justify-start sm:justify-center gap-2 overflow-x-auto py-1 scrollbar-none px-1">
+          <span className="text-xs text-amber-300 font-extrabold hidden sm:inline mr-1 shrink-0">
             Quick:
           </span>
           {quickPairs.map((pair, idx) => (
@@ -210,7 +210,7 @@ export default function App() {
               key={idx}
               type="button"
               onClick={() => handleQuickPair(pair.from, pair.to)}
-              className="shrink-0 px-3 py-1.5 rounded-xl bg-[#0f172a] hover:bg-indigo-600 text-slate-100 hover:text-white border-2 border-indigo-500/35 hover:border-indigo-400 text-xs transition-all font-bold backdrop-blur-md shadow-md cursor-pointer hover:scale-105 active:scale-95"
+              className="shrink-0 px-2.5 sm:px-3 py-1.5 rounded-xl bg-[#0f172a] hover:bg-indigo-600 text-slate-100 hover:text-white border-2 border-indigo-500/35 hover:border-indigo-400 text-[11px] sm:text-xs transition-all font-bold backdrop-blur-md shadow-md cursor-pointer hover:scale-105 active:scale-95"
             >
               {pair.label}
             </button>
